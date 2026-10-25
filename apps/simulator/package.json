@@ -1,0 +1,36 @@
+{
+  "name": "@aps/simulator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "simulator": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "cli": "tsx src/cli.ts",
+    "scenario:steady": "tsx src/cli.ts --scenario steady",
+    "scenario:offline-reconnect": "tsx src/cli.ts --scenario offline-reconnect",
+    "scenario:spike": "tsx src/cli.ts --scenario spike",
+    "scenario:burst": "tsx src/cli.ts --scenario burst",
+    "scenario:malformed": "tsx src/cli.ts --scenario malformed",
+    "scenario:duplicate-storm": "tsx src/cli.ts --scenario duplicate-storm",
+    "scenario:kill-worker": "tsx src/cli.ts --scenario kill-worker",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@aps/shared": "*",
+    "pino": "^9.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "aps-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "author": "Sahil",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run --workspaces --if-present build",
+    "test": "vitest run",
+    "test:failure": "vitest run tests/failure-scenarios.test.ts",
+    "test:watch": "vitest",
+    "typecheck": "npm run --workspaces --if-present typecheck && tsc -p tests/tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "migrate": "node packages/shared/dist/migrate.js",
+    "seed": "node packages/shared/dist/seed.js",
+    "scenario:steady": "npm run --workspace=@aps/simulator scenario:steady",
+    "scenario:offline-reconnect": "npm run --workspace=@aps/simulator scenario:offline-reconnect",
+    "scenario:spike": "npm run --workspace=@aps/simulator scenario:spike",
+    "scenario:burst": "npm run --workspace=@aps/simulator scenario:burst",
+    "scenario:malformed": "npm run --workspace=@aps/simulator scenario:malformed",
+    "scenario:duplicate-storm": "npm run --workspace=@aps/simulator scenario:duplicate-storm",
+    "scenario:kill-worker": "npm run --workspace=@aps/simulator scenario:kill-worker"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "eslint": "^10.13.0",
+    "playwright": "^1.64.1",
+    "prettier": "^3.9.10",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

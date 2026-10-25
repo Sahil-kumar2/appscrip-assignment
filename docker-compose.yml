@@ -1,0 +1,116 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: aps-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: aps
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d aps']
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: aps-api
+    restart: always
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/aps
+      PORT: 3000
+      HOST: 0.0.0.0
+      QUEUE_BACKPRESSURE_THRESHOLD: 5000
+      NOTIFICATION_SINK_URL: http://notification-sink:4000/webhook
+      AUTO_MIGRATE: 'true'
+      LOG_LEVEL: info
+    ports:
+      - '3000:3000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/healthz || exit 1']
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: aps-worker
+    restart: always
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/aps
+      WORKER_POLL_INTERVAL_MS: 500
+      WORKER_BATCH_SIZE: 20
+      EVENT_LEASE_SECONDS: 30
+      MAX_EVENT_ATTEMPTS: 5
+      OUTBOX_POLL_INTERVAL_MS: 1000
+      OUTBOX_BATCH_SIZE: 10
+      MAX_OUTBOX_ATTEMPTS: 5
+      ABSENCE_CHECK_INTERVAL_MS: 5000
+      LOG_LEVEL: info
+    depends_on:
+      api:
+        condition: service_healthy
+
+  notification-sink:
+    build:
+      context: .
+      dockerfile: apps/notification-sink/Dockerfile
+    container_name: aps-notification-sink
+    restart: always
+    environment:
+      PORT: 4000
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+    ports:
+      - '4000:4000'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:4000/healthz || exit 1']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  simulator:
+    build:
+      context: .
+      dockerfile: apps/simulator/Dockerfile
+    container_name: aps-simulator
+    restart: always
+    environment:
+      API_URL: http://api:3000
+      INTERVAL_MS: 2000
+      BATCH_SIZE: 3
+      ANOMALY_PROBABILITY: 0.15
+      DUPLICATE_PROBABILITY: 0.10
+      MALFORMED_PROBABILITY: 0.05
+      LOG_LEVEL: info
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: aps-web
+    restart: always
+    ports:
+      - '5173:80'
+      - '8080:80'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

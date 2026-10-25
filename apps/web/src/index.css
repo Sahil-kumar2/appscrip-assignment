@@ -1,0 +1,188 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light Theme: Warm paper with ink text */
+  --canvas: #F6F3EE;
+  --surface: #FFFFFF;
+  --surface-raised: #FAF8F5;
+  --ink: #14171F;
+  --muted: #6C727F;
+  --hairline: #E3DED6;
+  --hairline-subtle: #ECE8E1;
+
+  /* Accent: Rich electric amber */
+  --accent: #D98200;
+  --accent-hover: #B86E00;
+  --accent-soft: rgba(217, 130, 0, 0.1);
+  --brand: var(--accent);
+  --brand-hover: var(--accent-hover);
+  --brand-soft: var(--accent-soft);
+
+  /* Status Palette */
+  --healthy: #059669;
+  --healthy-bg: rgba(5, 150, 105, 0.1);
+  --stale: #D97706;
+  --stale-bg: rgba(217, 119, 6, 0.12);
+  --critical: #E11D48;
+  --critical-bg: rgba(225, 29, 72, 0.1);
+  --acknowledged: #0284C7;
+  --acknowledged-bg: rgba(2, 132, 199, 0.1);
+  --resolved: #64748B;
+  --resolved-bg: rgba(100, 116, 139, 0.1);
+
+  /* Backward compatibility aliases */
+  --warning: var(--stale);
+  --warning-bg: var(--stale-bg);
+
+  --radius-control: 6px;
+  --radius-panel: 8px;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.06), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-sheet: -8px 0 32px rgba(0, 0, 0, 0.1);
+}
+
+.dark {
+  /* Dark Theme: Mission Control Deep Graphite (#0E1116) */
+  --canvas: #0E1116;
+  --surface: #161A21;
+  --surface-raised: #1C222B;
+  --ink: #EDF1F7;
+  --muted: #8E99A8;
+  --hairline: #232936;
+  --hairline-subtle: #1C222C;
+
+  /* Accent: Electric amber (#FFB020) */
+  --accent: #FFB020;
+  --accent-hover: #FFBE3D;
+  --accent-soft: rgba(255, 176, 32, 0.12);
+  --brand: var(--accent);
+  --brand-hover: var(--accent-hover);
+  --brand-soft: var(--accent-soft);
+
+  /* Status Palette */
+  --healthy: #10B981;
+  --healthy-bg: rgba(16, 185, 129, 0.12);
+  --stale: #F59E0B;
+  --stale-bg: rgba(245, 158, 11, 0.14);
+  --critical: #F43F5E;
+  --critical-bg: rgba(244, 63, 94, 0.14);
+  --acknowledged: #38BDF8;
+  --acknowledged-bg: rgba(56, 189, 248, 0.12);
+  --resolved: #94A3B8;
+  --resolved-bg: rgba(148, 163, 184, 0.12);
+
+  /* Backward compatibility aliases */
+  --warning: var(--stale);
+  --warning-bg: var(--stale-bg);
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --shadow-sheet: -8px 0 32px rgba(0, 0, 0, 0.6);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background-color: var(--canvas);
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  font-size: 13px;
+}
+
+/* Subtle control room grid texture on dark mode */
+.dark body {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Headings font */
+h1, h2, h3, h4, .font-heading {
+  font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: -0.015em;
+}
+
+/* Accessible focus styling with electric amber */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tabular figures for monospace numbers */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Minimal control-room scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--hairline);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Live stream event flash animation */
+@keyframes eventHighlight {
+  0% {
+    background-color: var(--accent-soft);
+    transform: translateY(-4px);
+  }
+  100% {
+    background-color: transparent;
+    transform: translateY(0);
+  }
+}
+
+.animate-event-flash {
+  animation: eventHighlight 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Incident entry motion */
+@keyframes incidentIn {
+  0% {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-incident-in {
+  animation: incidentIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
