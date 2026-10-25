@@ -3,6 +3,7 @@ import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { createLogger } from '@aps/shared';
+import { SqlFilterBuilder } from '../utils/query-builder.js';
 
 const logger = createLogger({ service: 'rule-routes' });
 
@@ -86,16 +87,15 @@ export const ruleRoutes: FastifyPluginAsync<RuleRouteOptions> = async (fastify, 
   // List all rules
   fastify.get('/api/rules', async (req) => {
     const query = req.query as { enabled?: string };
-    const params: any[] = [];
-    let sql = 'SELECT * FROM rules WHERE 1=1';
+    const filter = new SqlFilterBuilder();
 
     if (typeof query.enabled === 'string') {
-      params.push(query.enabled === 'true');
-      sql += ` AND enabled = $${params.length}`;
+      filter.add((p) => `enabled = ${p}`, query.enabled === 'true');
     }
 
-    sql += ' ORDER BY created_at ASC';
-    const res = await pool.query(sql, params);
+    const whereClause = filter.getWhereClause('WHERE ');
+    const sql = `SELECT * FROM rules ${whereClause} ORDER BY created_at ASC`;
+    const res = await pool.query(sql, filter.getParameters());
     return { rules: res.rows };
   });
 

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import pg from 'pg';
 import { createLogger } from '@aps/shared';
+import { parsePagination, SqlFilterBuilder } from '../utils/query-builder.js';
 
 const logger = createLogger({ service: 'notification-routes' });
 
@@ -23,31 +24,26 @@ export const notificationRoutes: FastifyPluginAsync<NotificationRouteOptions> = 
       offset?: string;
     };
 
-    const limit = Math.min(100, Math.max(1, Number(query.limit || 50)));
-    const offset = Math.max(0, Number(query.offset || 0));
+    const { limit, offset } = parsePagination(query, 50, 100);
 
-    const params: any[] = [];
-    let sql = `
+    const filter = new SqlFilterBuilder();
+    filter.add((p) => `no.status = ${p}`, query.status);
+    filter.add((p) => `no.incident_id = ${p}`, query.incident_id);
+
+    const whereClause = filter.getWhereClause('WHERE ');
+    const limitPlaceholder = filter.pushParam(limit);
+    const offsetPlaceholder = filter.pushParam(offset);
+
+    const sql = `
       SELECT no.*, o.name as operator_name
       FROM notification_outbox no
       LEFT JOIN operators o ON o.id = no.operator_id
-      WHERE 1=1
+      ${whereClause}
+      ORDER BY no.created_at DESC
+      LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}
     `;
 
-    if (query.status) {
-      params.push(query.status);
-      sql += ` AND no.status = $${params.length}`;
-    }
-
-    if (query.incident_id) {
-      params.push(query.incident_id);
-      sql += ` AND no.incident_id = $${params.length}`;
-    }
-
-    sql += ` ORDER BY no.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
-
-    const res = await pool.query(sql, params);
+    const res = await pool.query(sql, filter.getParameters());
     return { notifications: res.rows };
   });
 

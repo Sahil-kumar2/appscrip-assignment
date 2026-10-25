@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import pg from 'pg';
 import { withTransaction, createLogger } from '@aps/shared';
+import { parsePagination, SqlFilterBuilder } from '../utils/query-builder.js';
 
 const logger = createLogger({ service: 'incident-routes' });
 
@@ -27,15 +28,26 @@ export const incidentRoutes: FastifyPluginAsync<IncidentRouteOptions> = async (f
       offset?: string;
     };
 
-    const limit = Math.min(100, Math.max(1, Number(query.limit || 50)));
-    const offset = Math.max(0, Number(query.offset || 0));
+    const { limit, offset } = parsePagination(query, 50, 100);
 
-    const params: any[] = [];
-    let sql = `
+    const filter = new SqlFilterBuilder();
+    filter.add((p) => `i.status = ${p}`, query.status);
+    filter.add((p) => `i.severity = ${p}`, query.severity);
+    filter.add((p) => `i.device_id = ${p}`, query.device || query.device_id);
+
+    const whereClause = filter.getWhereClause('WHERE ');
+    const limitPlaceholder = filter.pushParam(limit);
+    const offsetPlaceholder = filter.pushParam(offset);
+
+    const sql = `
       SELECT i.*, r.name as rule_name, r.rule_type, d.name as device_name,
              (SELECT count(*) FROM incident_events ie WHERE ie.incident_id = i.id) as attached_events_count,
              COALESCE(
-               (SELECT CASE WHEN no.status = 'delivered' THEN 'sent' ELSE no.status END
+               (SELECT CASE 
+                         WHEN no.status = 'delivered' THEN 'sent' 
+                         WHEN no.status = 'in_flight' THEN 'pending' 
+                         ELSE no.status 
+                       END
                 FROM notification_outbox no
                 WHERE no.incident_id = i.id
                 ORDER BY no.created_at DESC
@@ -45,29 +57,12 @@ export const incidentRoutes: FastifyPluginAsync<IncidentRouteOptions> = async (f
       FROM incidents i
       JOIN rules r ON r.id = i.rule_id
       JOIN devices d ON d.id = i.device_id
-      WHERE 1=1
+      ${whereClause}
+      ORDER BY i.updated_at DESC
+      LIMIT ${limitPlaceholder} OFFSET ${offsetPlaceholder}
     `;
 
-    if (query.status) {
-      params.push(query.status);
-      sql += ` AND i.status = $${params.length}`;
-    }
-
-    if (query.severity) {
-      params.push(query.severity);
-      sql += ` AND i.severity = $${params.length}`;
-    }
-
-    const deviceFilter = query.device || query.device_id;
-    if (deviceFilter) {
-      params.push(deviceFilter);
-      sql += ` AND i.device_id = $${params.length}`;
-    }
-
-    sql += ` ORDER BY i.updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
-    params.push(limit, offset);
-
-    const res = await pool.query(sql, params);
+    const res = await pool.query(sql, filter.getParameters());
     return { incidents: res.rows };
   });
 
@@ -84,7 +79,11 @@ export const incidentRoutes: FastifyPluginAsync<IncidentRouteOptions> = async (f
       `SELECT i.*, r.name as rule_name, r.rule_type, r.config as rule_config,
               d.name as device_name, d.location_id,
               COALESCE(
-                (SELECT CASE WHEN no.status = 'delivered' THEN 'sent' ELSE no.status END
+                (SELECT CASE 
+                          WHEN no.status = 'delivered' THEN 'sent' 
+                          WHEN no.status = 'in_flight' THEN 'pending' 
+                          ELSE no.status 
+                        END
                  FROM notification_outbox no
                  WHERE no.incident_id = i.id
                  ORDER BY no.created_at DESC

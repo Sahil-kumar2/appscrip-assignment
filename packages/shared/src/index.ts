@@ -7,3 +7,4 @@ export * from './logger.js';
 export * from './db.js';
 export * from './migrate.js';
 export * from './seed.js';
+export * from './change-log.js';

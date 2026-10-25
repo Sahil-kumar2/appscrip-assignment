@@ -3,6 +3,7 @@ import pg from 'pg';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { hashDeviceKey, createLogger } from '@aps/shared';
+import { SqlFilterBuilder } from '../utils/query-builder.js';
 
 const logger = createLogger({ service: 'device-routes' });
 
@@ -27,26 +28,21 @@ export const deviceRoutes: FastifyPluginAsync<DeviceRouteOptions> = async (fasti
       status?: string;
     };
 
-    const params: any[] = [];
-    let sql = `
+    const filter = new SqlFilterBuilder();
+    filter.add((p) => `d.location_id = ${p}`, query.location_id);
+    filter.add((p) => `d.status = ${p}`, query.status);
+
+    const whereClause = filter.getWhereClause('WHERE ');
+    const params = filter.getParameters();
+
+    const sql = `
       SELECT d.id, d.name, d.location_id, d.status, d.last_seen_at, d.last_event_ts, d.last_seq, d.created_at,
              l.name as location_name
       FROM devices d
       LEFT JOIN locations l ON l.id = d.location_id
-      WHERE 1=1
+      ${whereClause}
+      ORDER BY d.created_at DESC
     `;
-
-    if (query.location_id) {
-      params.push(query.location_id);
-      sql += ` AND d.location_id = $${params.length}`;
-    }
-
-    if (query.status) {
-      params.push(query.status);
-      sql += ` AND d.status = $${params.length}`;
-    }
-
-    sql += ' ORDER BY d.created_at DESC';
 
     const res = await pool.query(sql, params);
     return { devices: res.rows };

@@ -147,4 +147,28 @@ describe('Shared Package Unit Tests', () => {
       expect(IngestBatchSchema.safeParse(largeArray).success).toBe(false);
     });
   });
+
+  describe('Change Log: emitChangeLog', () => {
+    it('executes parameterized INSERT INTO change_log query and returns sequence', async () => {
+      const { emitChangeLog } = await import('../change-log.js');
+      const mockQuery = vi.fn().mockResolvedValue({ rows: [{ seq: '42' }] });
+      const mockClient = { query: mockQuery } as any;
+
+      const seq = await emitChangeLog(mockClient, {
+        entity: 'incident',
+        entityId: 'inc-123',
+        op: 'UPDATE',
+        data: { status: 'acknowledged' },
+      });
+
+      expect(seq).toBe(42);
+      expect(mockQuery).toHaveBeenCalledTimes(1);
+      expect(mockQuery.mock.calls[0][1]).toEqual([
+        'incident',
+        'inc-123',
+        'UPDATE',
+        JSON.stringify({ status: 'acknowledged' }),
+      ]);
+    });
+  });
 });
