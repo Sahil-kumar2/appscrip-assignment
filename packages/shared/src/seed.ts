@@ -13,34 +13,41 @@ export interface SeedDevice {
 
 export const SEED_DEVICES: SeedDevice[] = [
   {
+    id: 'edge-austin-press-01',
+    name: 'Austin Hydraulic Press Monitor',
+    location_id: 'loc-facility-austin',
+    rawKey: 'sec_live_austin_press_01',
+  },
+  {
+    id: 'edge-austin-cnc-02',
+    name: 'Austin Precision CNC Cell',
+    location_id: 'loc-facility-austin',
+    rawKey: 'sec_live_austin_cnc_02',
+  },
+  {
+    id: 'edge-berlin-chiller-01',
+    name: 'Berlin Cold-Chain Refrigeration Unit',
+    location_id: 'loc-hub-berlin',
+    rawKey: 'sec_live_berlin_chiller_01',
+  },
+  {
+    id: 'edge-berlin-sorter-02',
+    name: 'Berlin High-Speed Optical Sorter',
+    location_id: 'loc-hub-berlin',
+    rawKey: 'sec_live_berlin_sorter_02',
+  },
+  {
+    id: 'edge-berlin-telecom-03',
+    name: 'Berlin Gateway Node 3',
+    location_id: 'loc-hub-berlin',
+    rawKey: 'sec_live_berlin_telecom_03',
+  },
+  // Legacy fixture device for automated test backwards-compatibility
+  {
     id: 'dev-001',
-    name: 'Warehouse Sensor A',
-    location_id: 'loc-warehouse-1',
+    name: 'Telemetry Test Rig Alpha',
+    location_id: 'loc-facility-austin',
     rawKey: 'key-dev-001-secret',
-  },
-  {
-    id: 'dev-002',
-    name: 'Warehouse Gateway B',
-    location_id: 'loc-warehouse-1',
-    rawKey: 'key-dev-002-secret',
-  },
-  {
-    id: 'dev-003',
-    name: 'Datacenter HVAC 1',
-    location_id: 'loc-datacenter-1',
-    rawKey: 'key-dev-003-secret',
-  },
-  {
-    id: 'dev-004',
-    name: 'Datacenter Rack Monitor',
-    location_id: 'loc-datacenter-1',
-    rawKey: 'key-dev-004-secret',
-  },
-  {
-    id: 'dev-005',
-    name: 'Datacenter Edge Node',
-    location_id: 'loc-datacenter-1',
-    rawKey: 'key-dev-005-secret',
   },
 ];
 
@@ -49,20 +56,31 @@ export async function runSeed(): Promise<void> {
   const sinkBase = process.env.NOTIFICATION_SINK_URL || 'http://notification-sink:4000/webhook';
 
   try {
-    logger.info('Starting database seeding...');
+    logger.info('Starting database seeding with primary fleet devices...');
 
     await withTransaction(pool, async (client) => {
-      // 1. Exactly 2 Locations
+      // 1. Locations
       const locations = [
         {
+          id: 'loc-facility-austin',
+          name: 'Austin Advanced Manufacturing Facility',
+          metadata: JSON.stringify({ region: 'us-south', facility_type: 'manufacturing' }),
+        },
+        {
+          id: 'loc-hub-berlin',
+          name: 'Berlin Central Logistics Hub',
+          metadata: JSON.stringify({ region: 'eu-central', facility_type: 'distribution' }),
+        },
+        // Legacy location for test backwards-compatibility
+        {
           id: 'loc-warehouse-1',
-          name: 'East Coast Warehouse',
-          metadata: JSON.stringify({ region: 'us-east' }),
+          name: 'Legacy Test Lab Alpha',
+          metadata: JSON.stringify({ region: 'test' }),
         },
         {
           id: 'loc-datacenter-1',
-          name: 'Northern Datacenter',
-          metadata: JSON.stringify({ region: 'us-central' }),
+          name: 'Legacy Test Lab Beta',
+          metadata: JSON.stringify({ region: 'test' }),
         },
       ];
 
@@ -75,23 +93,40 @@ export async function runSeed(): Promise<void> {
         );
       }
 
-      // 2. Exactly 2 Operators (id, name, webhook_url, location_ids)
+      // 2. Operators
       const operators = [
         {
+          id: 'op-sarah',
+          name: 'Sarah Jenkins',
+          email: 'sarah.jenkins@aps-ops.net',
+          webhook_url: sinkBase,
+          location_ids: ['loc-facility-austin', 'loc-warehouse-1'],
+          location_id: 'loc-facility-austin',
+        },
+        {
+          id: 'op-marcus',
+          name: 'Marcus Vance',
+          email: 'marcus.vance@aps-ops.net',
+          webhook_url: sinkBase,
+          location_ids: ['loc-hub-berlin', 'loc-datacenter-1'],
+          location_id: 'loc-hub-berlin',
+        },
+        // Legacy operators for test backwards-compatibility
+        {
           id: 'op-alice',
-          name: 'Alice Chen',
+          name: 'Alice Chen (Legacy)',
           email: 'alice@example.com',
           webhook_url: sinkBase,
-          location_ids: ['loc-warehouse-1'],
-          location_id: 'loc-warehouse-1',
+          location_ids: ['loc-facility-austin', 'loc-warehouse-1'],
+          location_id: 'loc-facility-austin',
         },
         {
           id: 'op-bob',
-          name: 'Bob Smith',
+          name: 'Bob Smith (Legacy)',
           email: 'bob@example.com',
           webhook_url: sinkBase,
-          location_ids: ['loc-datacenter-1'],
-          location_id: 'loc-datacenter-1',
+          location_ids: ['loc-hub-berlin', 'loc-datacenter-1'],
+          location_id: 'loc-hub-berlin',
         },
       ];
 
@@ -109,7 +144,7 @@ export async function runSeed(): Promise<void> {
         );
       }
 
-      // 3. Exactly 5 Devices (id, name, location_id, key_hash, last_seen_at, last_event_ts, created_at)
+      // 3. Devices
       for (const dev of SEED_DEVICES) {
         const keyHash = hashDeviceKey(dev.rawKey);
         await client.query(
@@ -123,11 +158,11 @@ export async function runSeed(): Promise<void> {
         );
       }
 
-      // 4. Exactly 3 Sample Rules (temp > 80, absence 60s, event_type "device.error")
+      // 4. Sample Rules
       const rules = [
         {
           id: 'rule-temp-high',
-          name: 'High Temperature Critical (> 80°C)',
+          name: 'High Temperature Threshold (> 80°C)',
           type: 'threshold',
           config: JSON.stringify({ field: 'temperature', operator: '>', value: 80 }),
           scope: JSON.stringify({ type: 'all' }),
@@ -137,7 +172,7 @@ export async function runSeed(): Promise<void> {
         },
         {
           id: 'rule-device-absence',
-          name: 'Device Absence 60s',
+          name: 'Device Silence Absence (> 60s)',
           type: 'absence',
           config: JSON.stringify({ timeout_seconds: 60 }),
           scope: JSON.stringify({ type: 'all' }),
@@ -147,7 +182,7 @@ export async function runSeed(): Promise<void> {
         },
         {
           id: 'rule-device-error',
-          name: 'Device Error Alert (device.error)',
+          name: 'Hardware Error Alert (device.error)',
           type: 'event_type',
           config: JSON.stringify({ event_type: 'device.error' }),
           scope: JSON.stringify({ type: 'all' }),
@@ -159,11 +194,10 @@ export async function runSeed(): Promise<void> {
 
       for (const r of rules) {
         await client.query(
-          `INSERT INTO rules (id, name, type, rule_type, config, scope, scope_type, severity, enabled, cooldown)
-           VALUES ($1, $2, $3, $3, $4::jsonb, $5::jsonb, 'all', $6, $7, $8)
+          `INSERT INTO rules (id, name, rule_type, config, scope, severity, enabled, cooldown)
+           VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
            ON CONFLICT (id) DO UPDATE 
            SET name = EXCLUDED.name,
-               type = EXCLUDED.type,
                rule_type = EXCLUDED.rule_type,
                config = EXCLUDED.config,
                scope = EXCLUDED.scope,
@@ -175,30 +209,11 @@ export async function runSeed(): Promise<void> {
       }
     });
 
-    // Print API keys to console for easy operator access
-    console.log('\n========================================================================');
-    console.log('       APS SEEDED DEVICE CREDENTIALS (USE WITH BEARER AUTH)             ');
-    console.log('========================================================================');
-    for (const dev of SEED_DEVICES) {
-      console.log(
-        `  Device: ${dev.id.padEnd(10)} | Location: ${dev.location_id.padEnd(18)} | Bearer Key: ${dev.rawKey}`
-      );
-    }
-    console.log('========================================================================\n');
-
-    logger.info('Database seeded successfully.');
+    logger.info('Database seeded successfully with operational entities');
+  } catch (err) {
+    logger.error({ err }, 'Failed to seed database');
+    throw err;
   } finally {
     await pool.end();
   }
-}
-
-// Allow direct execution
-const isMain =
-  process.argv[1] && (process.argv[1].endsWith('seed.ts') || process.argv[1].endsWith('seed.js'));
-
-if (isMain) {
-  runSeed().catch((err) => {
-    logger.error({ err }, 'Seeding failed');
-    process.exit(1);
-  });
 }

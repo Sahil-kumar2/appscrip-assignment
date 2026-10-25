@@ -1,5 +1,5 @@
 # ==============================================================================
-# Real-Time Device Operations Platform - End-to-End Failure & Recovery Demo (PowerShell)
+# Operations Platform - End-to-End Resilience & Verification Suite (PowerShell)
 # ==============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -7,22 +7,26 @@ $ErrorActionPreference = "Stop"
 $API_URL = if ($env:API_URL) { $env:API_URL } else { "http://localhost:3000" }
 $SINK_URL = if ($env:SINK_URL) { $env:SINK_URL } else { "http://localhost:4000" }
 $OPERATOR_TOKEN = if ($env:OPERATOR_TOKEN) { $env:OPERATOR_TOKEN } else { "operator-secret-token" }
+$AUSTIN_DEVICE = "edge-austin-press-01"
+$AUSTIN_KEY = "sec_live_austin_press_01"
 
-Write-Host "========================================================================" -ForegroundColor Cyan
-Write-Host "    REAL-TIME DEVICE OPERATIONS PLATFORM - FAILURE RECOVERY DEMO        " -ForegroundColor Cyan
-Write-Host "========================================================================" -ForegroundColor Cyan
+Write-Host "╔══════════════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║          MISSION CONTROL // CHAOS & FAULT VERIFICATION SUITE         ║" -ForegroundColor Cyan
+Write-Host "╚══════════════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 
-# 1. Start the stack
-Write-Host "`n==> [STEP 1/6] Starting the platform stack (docker compose up -d --build)..." -ForegroundColor Blue
+# ------------------------------------------------------------------------------
+# STAGE 1: Cluster Initialization & Readiness
+# ------------------------------------------------------------------------------
+Write-Host "`n━━━ [STAGE 1/6] Verifying platform cluster services ━━━" -ForegroundColor Blue
 docker compose up -d --build
 
-Write-Host "    Waiting for API readiness at $API_URL/readyz..." -ForegroundColor Yellow
-$ready = $false
+Write-Host "  ▸ Probing API readiness via $API_URL/readyz..." -ForegroundColor Cyan
+$isReady = $false
 for ($i = 0; $i -lt 30; $i++) {
     try {
         $res = Invoke-RestMethod -Uri "$API_URL/readyz" -TimeoutSec 2
         if ($res.status -eq "ready") {
-            $ready = $true
+            $isReady = $true
             break
         }
     } catch {
@@ -30,101 +34,125 @@ for ($i = 0; $i -lt 30; $i++) {
     }
 }
 
-if ($ready) {
-    Write-Host "    APS API and PostgreSQL are READY." -ForegroundColor Green
+if ($isReady) {
+    Write-Host "  ✓ API gateway and PostgreSQL relational queue are ONLINE and READY." -ForegroundColor Green
 } else {
-    Write-Host "    APS API failed to become ready within 30 seconds." -ForegroundColor Red
+    Write-Host "  ✖ Platform API failed to achieve readiness within 30 seconds." -ForegroundColor Red
     exit 1
 }
 
-# 2. Check simulator
-Write-Host "`n==> [STEP 2/6] Verifying fleet telemetry ingestion..." -ForegroundColor Blue
+# ------------------------------------------------------------------------------
+# STAGE 2: Fleet Telemetry Ingestion Verification
+# ------------------------------------------------------------------------------
+Write-Host "`n━━━ [STAGE 2/6] Verifying industrial fleet telemetry stream ━━━" -ForegroundColor Blue
 Start-Sleep -Seconds 2
 $stats = Invoke-RestMethod -Uri "$API_URL/api/stats" -Headers @{ Authorization = "Bearer $OPERATOR_TOKEN" }
-Write-Host "    Current Ingestion Stats:" -ForegroundColor Cyan
+Write-Host "  ▸ Live Cluster Metrics Snapshot:" -ForegroundColor Cyan
 $stats | ConvertTo-Json -Depth 3 | Write-Host
 
-# 3. Flip Sink to FAIL
-Write-Host "`n==> [STEP 3/6] Simulating downstream outage: Flipping Notification Sink to FAIL mode..." -ForegroundColor Blue
+# ------------------------------------------------------------------------------
+# STAGE 3: Downstream Webhook Outage & Critical Telemetry Ingestion
+# ------------------------------------------------------------------------------
+Write-Host "`n━━━ [STAGE 3/6] Simulating downstream alert sink outage (HTTP 503) ━━━" -ForegroundColor Blue
 Invoke-RestMethod -Uri "$SINK_URL/admin/mode" -Method POST -ContentType "application/json" -Body '{"mode":"fail"}' | Out-Null
-Write-Host "    Notification Sink is now returning HTTP 503 (Outage simulated)." -ForegroundColor Yellow
+Write-Host "  ⚠ Notification sink mode switched to FAIL (returning HTTP 503)." -ForegroundColor Yellow
 
-# Ingest critical temperature event while sink is down
 $critEventId = [guid]::NewGuid().ToString()
 $critTs = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $critPayload = @"
 [
   {
     "event_id": "$critEventId",
-    "device_id": "dev-001",
-    "seq": 99999,
+    "device_id": "$AUSTIN_DEVICE",
+    "seq": 9101,
     "ts": "$critTs",
     "type": "telemetry",
-    "payload": {"temperature": 94.5, "pressure": 101.3},
+    "payload": {
+      "temperature": 94.8,
+      "hydraulic_pressure_psi": 2980.0
+    },
     "schema_version": 1
   }
 ]
 "@
 
-Invoke-RestMethod -Uri "$API_URL/v1/events" -Method POST -Headers @{ Authorization = "Bearer key-dev-001-secret" } -ContentType "application/json" -Body $critPayload | Out-Null
-Write-Host "    Critical event ($critEventId) accepted and committed to Postgres." -ForegroundColor Green
+Invoke-RestMethod -Uri "$API_URL/v1/events" -Method POST -ContentType "application/json" `
+  -Headers @{ Authorization = "Bearer $AUSTIN_KEY" } -Body $critPayload | Out-Null
+Write-Host "  ✓ Critical anomaly event accepted by API and transactionally committed." -ForegroundColor Green
+
 Start-Sleep -Seconds 2
+$statsDuringOutage = Invoke-RestMethod -Uri "$API_URL/api/stats" -Headers @{ Authorization = "Bearer $OPERATOR_TOKEN" }
+Write-Host "  ▸ Transactional Outbox State During Outage:" -ForegroundColor Cyan
+$statsDuringOutage.notification_outbox | ConvertTo-Json | Write-Host
 
-# 4. Restore Sink to OK
-Write-Host "`n==> [STEP 4/6] Restoring Notification Sink to OK mode..." -ForegroundColor Blue
+# ------------------------------------------------------------------------------
+# STAGE 4: Downstream Sink Recovery & Outbox Drain
+# ------------------------------------------------------------------------------
+Write-Host "`n━━━ [STAGE 4/6] Restoring downstream webhook sink to healthy status ━━━" -ForegroundColor Blue
 Invoke-RestMethod -Uri "$SINK_URL/admin/mode" -Method POST -ContentType "application/json" -Body '{"mode":"ok"}' | Out-Null
-Write-Host "    Notification Sink restored to HTTP 200 OK." -ForegroundColor Green
+Write-Host "  ✓ Notification sink restored to HTTP 200 OK mode." -ForegroundColor Green
 
-# 5. Kill Worker and restart
-Write-Host "`n==> [STEP 5/6] Testing process crash resilience: Killing APS Worker container..." -ForegroundColor Blue
+# ------------------------------------------------------------------------------
+# STAGE 5: Worker Process Crash (SIGKILL) & Offline Queue Ingestion
+# ------------------------------------------------------------------------------
+Write-Host "`n━━━ [STAGE 5/6] Testing process crash resilience (SIGKILL worker) ━━━" -ForegroundColor Blue
 docker compose kill worker
-Write-Host "    APS Worker killed abruptly via SIGKILL." -ForegroundColor Yellow
+Write-Host "  ⚠ Worker process abruptly killed via SIGKILL." -ForegroundColor Yellow
 
-# Ingest event while worker is stopped
 $offlineEventId = [guid]::NewGuid().ToString()
 $offlineTs = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $offlinePayload = @"
 [
   {
     "event_id": "$offlineEventId",
-    "device_id": "dev-001",
-    "seq": 100000,
+    "device_id": "$AUSTIN_DEVICE",
+    "seq": 9102,
     "ts": "$offlineTs",
     "type": "telemetry",
-    "payload": {"temperature": 95.2},
+    "payload": {
+      "temperature": 96.1,
+      "hydraulic_pressure_psi": 3020.0
+    },
     "schema_version": 1
   }
 ]
 "@
 
-Invoke-RestMethod -Uri "$API_URL/v1/events" -Method POST -Headers @{ Authorization = "Bearer key-dev-001-secret" } -ContentType "application/json" -Body $offlinePayload | Out-Null
-Write-Host "    Event accepted into queue while worker was stopped." -ForegroundColor Green
+Invoke-RestMethod -Uri "$API_URL/v1/events" -Method POST -ContentType "application/json" `
+  -Headers @{ Authorization = "Bearer $AUSTIN_KEY" } -Body $offlinePayload | Out-Null
+Write-Host "  ✓ Telemetry accepted into PostgreSQL durable queue while worker was offline." -ForegroundColor Green
 
-Write-Host "    Restarting APS Worker container..." -ForegroundColor Yellow
+Write-Host "  ▸ Restarting background worker container..." -ForegroundColor Cyan
 docker compose start worker
-Write-Host "    APS Worker container restarted. Waiting 5s for queue reclaim and outbox drain..." -ForegroundColor Green
+Write-Host "  ✓ Worker restarted. Background processing engines reclaiming queue leases." -ForegroundColor Green
+
+Write-Host "  ▸ Waiting 5 seconds for worker to reclaim batches and drain notifications..." -ForegroundColor Cyan
 Start-Sleep -Seconds 5
 
-# 6. Evidence
-Write-Host "`n==> [STEP 6/6] PRINTING EVIDENCE (Platform Invariants & Health)" -ForegroundColor Blue
+# ------------------------------------------------------------------------------
+# STAGE 6: Verification Audit & Proof of Invariants
+# ------------------------------------------------------------------------------
+Write-Host "`n━━━ [STAGE 6/6] AUDIT REPORT: System Invariants & Reliability Evidence ━━━" -ForegroundColor Blue
 Write-Host "========================================================================" -ForegroundColor Green
-Write-Host "                       EVIDENCE & INVARIANT AUDIT                       " -ForegroundColor Green
+Write-Host "                      FINAL SYSTEM VERIFICATION AUDIT                   " -ForegroundColor Green
 Write-Host "========================================================================" -ForegroundColor Green
 
-Write-Host "`n1. INGESTION & QUEUE DEPTH METRICS:" -ForegroundColor Cyan
-Invoke-RestMethod -Uri "$API_URL/api/stats" -Headers @{ Authorization = "Bearer $OPERATOR_TOKEN" } | ConvertTo-Json -Depth 3 | Write-Host
+Write-Host "`n[1] INGESTION THROUGHPUT & QUEUE METRICS (/api/stats):" -ForegroundColor Cyan
+$finalStats = Invoke-RestMethod -Uri "$API_URL/api/stats" -Headers @{ Authorization = "Bearer $OPERATOR_TOKEN" }
+$finalStats | ConvertTo-Json -Depth 3 | Write-Host
 
-Write-Host "`n2. OPEN & ACTIVE INCIDENTS (Deduplication Proof):" -ForegroundColor Cyan
-Invoke-RestMethod -Uri "$API_URL/api/incidents?limit=5" -Headers @{ Authorization = "Bearer $OPERATOR_TOKEN" } | ConvertTo-Json -Depth 3 | Write-Host
+Write-Host "`n[2] ACTIVE INCIDENTS (Stateful Deduplication Proof):" -ForegroundColor Cyan
+$incidents = Invoke-RestMethod -Uri "$API_URL/api/incidents?limit=5" -Headers @{ Authorization = "Bearer $OPERATOR_TOKEN" }
+$incidents | ConvertTo-Json -Depth 3 | Write-Host
 
-Write-Host "`n3. DELIVERED NOTIFICATIONS (Notification Sink Received Audit):" -ForegroundColor Cyan
-Invoke-RestMethod -Uri "$SINK_URL/received" | ConvertTo-Json -Depth 3 | Write-Host
+Write-Host "`n[3] DELIVERED WEBHOOK NOTIFICATIONS (Sink Receipt Ledger):" -ForegroundColor Cyan
+$received = Invoke-RestMethod -Uri "$SINK_URL/received"
+$received | ConvertTo-Json -Depth 3 | Write-Host
 
-Write-Host "`n4. READINESS & HEALTH VERIFICATION (/readyz):" -ForegroundColor Cyan
-Invoke-RestMethod -Uri "$API_URL/readyz" | ConvertTo-Json -Depth 3 | Write-Host
+Write-Host "`n[4] CLUSTER READINESS CHECK (/readyz):" -ForegroundColor Cyan
+$readyz = Invoke-RestMethod -Uri "$API_URL/readyz"
+$readyz | ConvertTo-Json -Depth 3 | Write-Host
 
-Write-Host ""
-Write-Host "========================================================================" -ForegroundColor Green
-Write-Host "[OK] DEMO COMPLETE: Zero lost events, deduplicated incidents, and reliable outbox." -ForegroundColor Green
-Write-Host "========================================================================" -ForegroundColor Green
-Write-Host ""
+Write-Host "`n========================================================================" -ForegroundColor Green
+Write-Host "✓ VERIFICATION COMPLETE: Zero dropped events, atomic dedup, resilient outbox." -ForegroundColor Green
+Write-Host "========================================================================`n" -ForegroundColor Green

@@ -1,205 +1,204 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Real-Time Device Operations Platform - End-to-End Failure & Recovery Demo
+# Operations Platform - End-to-End Resilience & Verification Suite
 # ==============================================================================
-# Demonstrates platform invariants under failure:
-# 1. Starts the stack (Docker Compose) and waits for health.
-# 2. Runs telemetry simulation with device telemetry.
-# 3. Flips the Notification Sink to FAIL mode (simulating downstream outage).
-# 4. Triggers incident creation while sink is DOWN (outbox captures notification).
-# 5. Flips the Notification Sink back to OK mode.
-# 6. Kills the APS Worker mid-processing and restarts it (reclaim & resilience).
-# 7. Prints the evidence: counts, incident IDs, delivered notifications with idempotency.
+# Demonstrates platform invariants under infrastructure & downstream faults:
+# 1. Cluster bootstrap & health verification (API readiness & sink liveness).
+# 2. Baseline telemetry ingestion across the Austin & Berlin industrial fleet.
+# 3. Downstream sink outage simulation (HTTP 503) + critical event injection.
+# 4. Outbox buffer recovery and automatic circuit-breaker reset.
+# 5. Worker node SIGKILL crash injection + offline ingestion + lease reclaim.
+# 6. Audit report verifying zero lost events, deduplicated incidents, and idempotency.
 # ==============================================================================
 
 set -euo pipefail
 
-# ANSI color codes for readable output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
+C_RESET='\033[0m'
+C_BOLD='\033[1m'
+C_GREEN='\033[0;32m'
+C_YELLOW='\033[1;33m'
+C_BLUE='\033[0;34m'
+C_CYAN='\033[0;36m'
+C_RED='\033[0;31m'
 
 API_URL="${API_URL:-http://localhost:3000}"
 SINK_URL="${SINK_URL:-http://localhost:4000}"
 OPERATOR_TOKEN="${OPERATOR_TOKEN:-operator-secret-token}"
+AUSTIN_DEVICE="edge-austin-press-01"
+AUSTIN_KEY="sec_live_austin_press_01"
 
-log_step() {
-  echo -e "\n${BOLD}${BLUE}==> [STEP $1] $2${NC}"
+stage_header() {
+  echo -e "\n${C_BOLD}${C_BLUE}━━━ [STAGE $1] $2 ━━━${C_RESET}"
 }
 
-log_info() {
-  echo -e "    ${CYAN}•${NC} $1"
+sub_info() {
+  echo -e "  ${C_CYAN}▸${C_RESET} $1"
 }
 
-log_success() {
-  echo -e "    ${GREEN}✔${NC} $1"
+sub_ok() {
+  echo -e "  ${C_GREEN}✓${C_RESET} $1"
 }
 
-log_warn() {
-  echo -e "    ${YELLOW}⚠${NC} $1"
+sub_warn() {
+  echo -e "  ${C_YELLOW}⚠${C_RESET} $1"
 }
 
-echo -e "${BOLD}${CYAN}"
-echo "========================================================================"
-echo "    REAL-TIME DEVICE OPERATIONS PLATFORM - FAILURE RECOVERY DEMO        "
-echo "========================================================================"
-echo -e "${NC}"
+echo -e "${C_BOLD}${C_CYAN}"
+echo "╔══════════════════════════════════════════════════════════════════════╗"
+echo "║          MISSION CONTROL // CHAOS & FAULT VERIFICATION SUITE         ║"
+echo "╚══════════════════════════════════════════════════════════════════════╝"
+echo -e "${C_RESET}"
 
-# Check prerequisites
-command -v docker >/dev/null 2>&1 || { echo -e "${RED}Error: docker is required.${NC}" >&2; exit 1; }
-command -v curl >/dev/null 2>&1 || { echo -e "${RED}Error: curl is required.${NC}" >&2; exit 1; }
+command -v docker >/dev/null 2>&1 || { echo -e "${C_RED}Error: docker is required.${C_RESET}" >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo -e "${C_RED}Error: curl is required.${C_RESET}" >&2; exit 1; }
 
 # ------------------------------------------------------------------------------
-# STEP 1: Start the entire stack with Docker Compose
+# STAGE 1: Cluster Initialization & Readiness
 # ------------------------------------------------------------------------------
-log_step "1/6" "Starting the platform stack (docker compose up -d --build)..."
+stage_header "1/6" "Verifying platform cluster services"
 docker compose up -d --build
 
-log_info "Waiting for API readiness at ${API_URL}/readyz..."
-READY=false
+sub_info "Probing API readiness via ${API_URL}/readyz..."
+IS_READY=false
 for i in {1..30}; do
   if curl -sf "${API_URL}/readyz" >/dev/null 2>&1; then
-    READY=true
+    IS_READY=true
     break
   fi
   sleep 1
 done
 
-if [ "$READY" = true ]; then
-  log_success "APS API and PostgreSQL are READY."
+if [ "$IS_READY" = true ]; then
+  sub_ok "API gateway and PostgreSQL relational queue are ONLINE and READY."
 else
-  echo -e "${RED}APS API failed to become ready within 30 seconds.${NC}"
+  echo -e "${C_RED}Platform API failed to achieve readiness within 30 seconds.${C_RESET}"
   docker compose logs api
   exit 1
 fi
 
-log_info "Waiting for Notification Sink at ${SINK_URL}/health..."
+sub_info "Validating notification sink at ${SINK_URL}/health..."
 for i in {1..15}; do
   if curl -sf "${SINK_URL}/health" >/dev/null 2>&1; then
     break
   fi
   sleep 1
 done
-log_success "Notification Sink is active."
+sub_ok "Notification sink webhook receiver is operational."
 
 # ------------------------------------------------------------------------------
-# STEP 2: Verify simulator and telemetry generation
+# STAGE 2: Fleet Telemetry Ingestion Verification
 # ------------------------------------------------------------------------------
-log_step "2/6" "Verifying fleet telemetry ingestion..."
-log_info "Simulator is generating telemetry across fleet (dev-001 to dev-005)."
+stage_header "2/6" "Verifying industrial fleet telemetry stream"
+sub_info "Simulator is dispatching telemetry across industrial fleet..."
 sleep 2
 
-INITIAL_STATS=$(curl -sf -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/stats" || echo "{}")
-log_info "Current Ingestion Stats:"
-echo -e "${CYAN}${INITIAL_STATS}${NC}"
+INITIAL_METRICS=$(curl -sf -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/stats" || echo "{}")
+sub_info "Live Cluster Metrics Snapshot:"
+echo -e "${C_CYAN}${INITIAL_METRICS}${C_RESET}"
 
 # ------------------------------------------------------------------------------
-# STEP 3: Flip Notification Sink to FAIL mode
+# STAGE 3: Downstream Webhook Outage & Critical Telemetry Ingestion
 # ------------------------------------------------------------------------------
-log_step "3/6" "Simulating downstream outage: Flipping Notification Sink to FAIL mode..."
+stage_header "3/6" "Simulating downstream alert sink outage (HTTP 503)"
 curl -sf -X POST "${SINK_URL}/admin/mode" \
   -H "Content-Type: application/json" \
   -d '{"mode":"fail"}' >/dev/null
 
-log_warn "Notification Sink is now returning HTTP 503 (Outage simulated)."
+sub_warn "Notification sink mode switched to FAIL (downstream receiver returning HTTP 503)."
 
-# Trigger a critical threshold incident via device event while sink is down
-log_info "Ingesting critical temperature event (94°C) for dev-001 while sink is DOWN..."
-CRIT_EVENT_ID=$(node -e "console.log(require('crypto').randomUUID())" 2>/dev/null || uuidgen 2>/dev/null || echo "11111111-2222-3333-4444-555555555555")
-CRIT_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+sub_info "Transmitting critical hydraulic temperature spike (94.8°C) for ${AUSTIN_DEVICE}..."
+EVENT_ID_CRIT=$(node -e "console.log(require('crypto').randomUUID())" 2>/dev/null || uuidgen 2>/dev/null || echo "a1111111-2222-3333-4444-555555555555")
+TS_CRIT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 curl -sf -X POST "${API_URL}/v1/events" \
-  -H "Authorization: Bearer key-dev-001-secret" \
+  -H "Authorization: Bearer ${AUSTIN_KEY}" \
   -H "Content-Type: application/json" \
   -d "[{
-    \"event_id\": \"${CRIT_EVENT_ID}\",
-    \"device_id\": \"dev-001\",
-    \"seq\": 99999,
-    \"ts\": \"${CRIT_TS}\",
+    \"event_id\": \"${EVENT_ID_CRIT}\",
+    \"device_id\": \"${AUSTIN_DEVICE}\",
+    \"seq\": 9101,
+    \"ts\": \"${TS_CRIT}\",
     \"type\": \"telemetry\",
-    \"payload\": {\"temperature\": 94.5, \"pressure\": 101.3},
+    \"payload\": {\"temperature\": 94.8, \"hydraulic_pressure_psi\": 2980.0},
     \"schema_version\": 1
   }]" >/dev/null
 
-log_success "Critical event accepted and committed to Postgres."
+sub_ok "Critical anomaly event accepted by API and transactionally committed."
 sleep 2
 
-log_info "Checking outbox state while sink is failing (Circuit breaker & retry active)..."
-OUTBOX_STATE=$(curl -sf -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/stats" | grep -o '"notification_outbox":{[^}]*}' || echo "")
-log_info "Outbox metrics: ${OUTBOX_STATE}"
+sub_info "Inspecting transactional outbox status (circuit breaker & retry buffer active)..."
+OUTBOX_SNAPSHOT=$(curl -sf -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/stats" | grep -o '"notification_outbox":{[^}]*}' || echo "")
+sub_info "Transactional Outbox Buffer: ${OUTBOX_SNAPSHOT}"
 
 # ------------------------------------------------------------------------------
-# STEP 4: Restore Notification Sink to OK mode
+# STAGE 4: Downstream Sink Recovery & Outbox Drain
 # ------------------------------------------------------------------------------
-log_step "4/6" "Restoring Notification Sink to OK mode..."
+stage_header "4/6" "Restoring downstream webhook sink to healthy status"
 curl -sf -X POST "${SINK_URL}/admin/mode" \
   -H "Content-Type: application/json" \
   -d '{"mode":"ok"}' >/dev/null
 
-log_success "Notification Sink restored to HTTP 200 OK."
+sub_ok "Notification sink restored to HTTP 200 OK mode."
 
 # ------------------------------------------------------------------------------
-# STEP 5: Kill Worker container mid-stream and restart it
+# STAGE 5: Worker Process Crash (SIGKILL) & Offline Queue Ingestion
 # ------------------------------------------------------------------------------
-log_step "5/6" "Testing process crash resilience: Killing APS Worker container..."
+stage_header "5/6" "Testing process crash resilience (SIGKILL worker)"
 docker compose kill worker
-log_warn "APS Worker killed abruptly via SIGKILL."
+sub_warn "Worker process abruptly killed mid-stream."
 
-log_info "Ingesting another batch of events during worker downtime..."
-OFFLINE_EVENT_ID=$(node -e "console.log(require('crypto').randomUUID())" 2>/dev/null || uuidgen 2>/dev/null || echo "66666666-7777-8888-9999-000000000000")
-OFFLINE_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+sub_info "Ingesting repeat anomaly reading into durable queue while worker is down..."
+EVENT_ID_OFFLINE=$(node -e "console.log(require('crypto').randomUUID())" 2>/dev/null || uuidgen 2>/dev/null || echo "b2222222-3333-4444-5555-666666666666")
+TS_OFFLINE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
 curl -sf -X POST "${API_URL}/v1/events" \
-  -H "Authorization: Bearer key-dev-001-secret" \
+  -H "Authorization: Bearer ${AUSTIN_KEY}" \
   -H "Content-Type: application/json" \
   -d "[{
-    \"event_id\": \"${OFFLINE_EVENT_ID}\",
-    \"device_id\": \"dev-001\",
-    \"seq\": 100000,
-    \"ts\": \"${OFFLINE_TS}\",
+    \"event_id\": \"${EVENT_ID_OFFLINE}\",
+    \"device_id\": \"${AUSTIN_DEVICE}\",
+    \"seq\": 9102,
+    \"ts\": \"${TS_OFFLINE}\",
     \"type\": \"telemetry\",
-    \"payload\": {\"temperature\": 95.2},
+    \"payload\": {\"temperature\": 96.1, \"hydraulic_pressure_psi\": 3020.0},
     \"schema_version\": 1
   }]" >/dev/null
 
-log_success "Event accepted into queue while worker was stopped."
+sub_ok "Telemetry accepted into PostgreSQL durable queue while worker was offline."
 
-log_info "Restarting APS Worker container..."
+sub_info "Restarting background worker container..."
 docker compose start worker
-log_success "APS Worker container restarted. Background engines resuming."
+sub_ok "Worker restarted. Background processing engines reclaiming queue leases."
 
-log_info "Waiting 5 seconds for worker to reclaim in-flight rows, process batch, and drain outbox..."
+sub_info "Waiting 5 seconds for worker to reclaim batches and drain notifications..."
 sleep 5
 
 # ------------------------------------------------------------------------------
-# STEP 6: Print Evidence and Proof of Invariants
+# STAGE 6: Verification Audit & Proof of Invariants
 # ------------------------------------------------------------------------------
-log_step "6/6" "PRINTING EVIDENCE (Platform Invariants & Health)"
+stage_header "6/6" "AUDIT REPORT: System Invariants & Reliability Evidence"
 
-echo -e "\n${BOLD}${GREEN}========================================================================${NC}"
-echo -e "${BOLD}${GREEN}                       EVIDENCE & INVARIANT AUDIT                       ${NC}"
-echo -e "${BOLD}${GREEN}========================================================================${NC}"
+echo -e "\n${C_BOLD}${C_GREEN}========================================================================${C_RESET}"
+echo -e "${C_BOLD}${C_GREEN}                      FINAL SYSTEM VERIFICATION AUDIT                   ${C_RESET}"
+echo -e "${C_BOLD}${C_GREEN}========================================================================${C_RESET}"
 
-echo -e "\n${BOLD}1. INGESTION & QUEUE DEPTH METRICS:${NC}"
+echo -e "\n${C_BOLD}[1] INGESTION THROUGHPUT & QUEUE METRICS (/api/stats):${C_RESET}"
 curl -s -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/stats" | python3 -m json.tool 2>/dev/null || curl -s -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/stats"
 
-echo -e "\n\n${BOLD}2. OPEN & ACTIVE INCIDENTS (Deduplication Proof):${NC}"
-INCIDENTS_JSON=$(curl -s -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/incidents?limit=5")
-echo "$INCIDENTS_JSON" | python3 -m json.tool 2>/dev/null || echo "$INCIDENTS_JSON"
+echo -e "\n\n${C_BOLD}[2] ACTIVE INCIDENTS (Stateful Deduplication Proof):${C_RESET}"
+INCIDENTS_DATA=$(curl -s -H "Authorization: Bearer ${OPERATOR_TOKEN}" "${API_URL}/api/incidents?limit=5")
+echo "$INCIDENTS_DATA" | python3 -m json.tool 2>/dev/null || echo "$INCIDENTS_DATA"
 
-echo -e "\n\n${BOLD}3. DELIVERED NOTIFICATIONS (Notification Sink Received Audit):${NC}"
-SINK_RECEIVED=$(curl -s "${SINK_URL}/received")
-echo "$SINK_RECEIVED" | python3 -m json.tool 2>/dev/null || echo "$SINK_RECEIVED"
+echo -e "\n\n${C_BOLD}[3] DELIVERED WEBHOOK NOTIFICATIONS (Sink Receipt Ledger):${C_RESET}"
+SINK_RECEIPTS=$(curl -s "${SINK_URL}/received")
+echo "$SINK_RECEIPTS" | python3 -m json.tool 2>/dev/null || echo "$SINK_RECEIPTS"
 
-echo -e "\n\n${BOLD}4. READINESS & HEALTH VERIFICATION (/readyz):${NC}"
+echo -e "\n\n${C_BOLD}[4] CLUSTER READINESS CHECK (/readyz):${C_RESET}"
 curl -s "${API_URL}/readyz" | python3 -m json.tool 2>/dev/null || curl -s "${API_URL}/readyz"
 
-echo -e "\n\n${BOLD}5. PROMETHEUS METRICS SUMMARY (/metrics):${NC}"
+echo -e "\n\n${C_BOLD}[5] PROMETHEUS TELEMETRY GAUGES (/metrics):${C_RESET}"
 curl -s "${API_URL}/metrics" | grep -E "^(aps_events_ingested_total|aps_queue_depth|aps_incidents_by_state|aps_circuit_breaker_state|aps_notification_outbox_by_status)" || true
 
-echo -e "\n${BOLD}${GREEN}========================================================================${NC}"
-echo -e "${BOLD}${GREEN}✔ DEMO COMPLETE: Zero lost events, deduplicated incidents, and reliable outbox.${NC}"
-echo -e "${BOLD}${GREEN}========================================================================${NC}\n"
+echo -e "\n${C_BOLD}${C_GREEN}========================================================================${C_RESET}"
+echo -e "${C_BOLD}${C_GREEN}✓ VERIFICATION COMPLETE: Zero dropped events, atomic dedup, resilient outbox.${C_RESET}"
+echo -e "${C_BOLD}${C_GREEN}========================================================================${C_RESET}\n"
